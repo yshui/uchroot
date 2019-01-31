@@ -29,11 +29,13 @@ fn enter_chroot(new_root: &str, cmd: &str, hostname: &str) -> Result<(), Error> 
         // set up uid maps
         {
             let mut f = File::create("/proc/self/uid_map")?;
-            write!(f, "{0} {0} 1", old_uid)?;
+            let map = format!("{0} {0} 1", old_uid);
+            f.write_all(map.as_bytes());
         }
         {
             let mut f = File::create("/proc/self/gid_map")?;
-            write!(f, "{0} {0} 1", old_gid)?;
+            let map = format!("{0} {0} 1", old_gid);
+            f.write_all(map.as_bytes());
         }
     }
 
