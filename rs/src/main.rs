@@ -10,10 +10,11 @@ extern crate derive_error;
 enum Error {
     Nix(nix::Error),
     Io(std::io::Error),
+    Nul(std::ffi::NulError),
 }
 
 fn enter_chroot(new_root: &str, cmd: &str, hostname: &str) -> Result<(), Error> {
-    unistd::chdir("/")?;
+    unistd::chdir(new_root)?;
 
     let old_uid = unistd::getuid();
     let old_gid = unistd::getgid();
@@ -54,16 +55,41 @@ fn enter_chroot(new_root: &str, cmd: &str, hostname: &str) -> Result<(), Error> 
     // Create mount points under new_root
     nix::mount::mount::<_, _, str, str>(Some(new_root), new_root, None, MsFlags::MS_BIND, None)?;
 
+    // chdir into the mount point, so after the move mount, we are actually under the new root
+    unistd::chdir(new_root)?;
+
+    // Bind some basic filesystems to the new_root
+    let new_sys = std::path::Path::new(new_root).join("sys");
+    nix::mount::mount::<_, _, str, str>(
+        Some("/sys"),
+        &new_sys,
+        None,
+        MsFlags::MS_BIND | MsFlags::MS_REC,
+        None,
+    )?;
+    let new_sys = std::path::Path::new(new_root).join("dev");
+    nix::mount::mount::<_, _, str, str>(
+        Some("/dev"),
+        &new_sys,
+        None,
+        MsFlags::MS_BIND | MsFlags::MS_REC,
+        None,
+    )?;
+
     // Move mount the new_root to /
     nix::mount::mount::<_, _, str, str>(Some(new_root), "/", None, MsFlags::MS_MOVE, None)?;
+
+    // chroot, so '/' actually refers to the new root
+    unistd::chroot(".")?;
 
     Ok(())
 }
 
 fn spawn_shell() -> Result<unistd::Pid, Error> {
+    use std::ffi::CString;
     match unistd::fork()? {
         unistd::ForkResult::Child => {
-            unistd::execvp(&std::ffi::CString::new("bash").unwrap(), &[]).unwrap();
+            unistd::execvp(&CString::new("sh")?, &[CString::new("sh")?]).unwrap();
             std::process::exit(1);
         }
         unistd::ForkResult::Parent { child } => Ok(child),
@@ -75,6 +101,15 @@ fn start_pid1() -> Result<unistd::Pid, Error> {
     let pid = unistd::fork()?;
     match pid {
         unistd::ForkResult::Child => {
+            // Mount new /proc
+            nix::mount::mount::<_, _, _, str>(
+                Some("proc"),
+                "/proc",
+                Some("proc"),
+                MsFlags::empty(),
+                None,
+            )
+            .unwrap();
             let child = spawn_shell().unwrap();
             loop {
                 let ws = wait();
