@@ -98,7 +98,15 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
             continue;
         }
 
-        let src = v.as_str().ok_or(Error::TomlMismatch)?;
+        let src = {
+            if let Some(s) = v.as_str() {
+                Ok(s)
+            } else if v.as_integer().is_some() {
+                Ok(k.as_str())
+            } else {
+                Err(Error::TomlMismatch)
+            }
+        }?;
         println!("Mounting {} to {}", src, k);
 
         nix::mount::mount::<_, _, str, str>(
