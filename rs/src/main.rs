@@ -88,6 +88,28 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
         None,
     )?;
 
+    // Bind filesystems in config file
+    for (k, v) in bind_cfg.as_table().ok_or(Error::TomlMismatch)? {
+        if k == "/" {
+            continue;
+        }
+        if k == "/proc" || k == "/sys" || k == "/dev" {
+            eprintln!("Bind mount of {} will be ignored", k);
+            continue;
+        }
+
+        let src = v.as_str().ok_or(Error::TomlMismatch)?;
+        println!("Mounting {} to {}", src, k);
+
+        nix::mount::mount::<_, _, str, str>(
+            Some(src),
+            k.as_str(),
+            None,
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            None
+        )?;
+    }
+
     // Move mount the new_root to /
     nix::mount::mount::<_, _, str, str>(Some(new_root), "/", None, MsFlags::MS_MOVE, None)?;
 
@@ -108,12 +130,14 @@ fn spawn_shell() -> Result<unistd::Pid, Error> {
     }
 }
 
-fn start_pid1() -> Result<unistd::Pid, Error> {
+fn start_pid1(cfg: &Value) -> Result<unistd::Pid, Error> {
     use nix::sys::wait::*;
     let pid = unistd::fork()?;
     match pid {
         unistd::ForkResult::Child => {
             // Mount new /proc
+            // Have to do this here, since /proc can't be mounted
+            // before pid 1 starts
             nix::mount::mount::<_, _, _, str>(
                 Some("proc"),
                 "/proc",
@@ -151,7 +175,7 @@ fn main() -> Result<(), Error> {
     let cfg = cfg.parse::<Value>()?;
     enter_chroot(&cfg)?;
 
-    let child = start_pid1()?;
+    let child = start_pid1(&cfg)?;
     nix::sys::wait::waitpid(Some(child), None)?;
     nix::sys::signal::kill(child, Some(nix::sys::signal::Signal::SIGKILL)).ok();
     Ok(())
