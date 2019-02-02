@@ -98,6 +98,11 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
             continue;
         }
 
+        if !k.starts_with("/") {
+            eprintln!("Target {} must be an absolute path", k);
+            continue;
+        }
+
         let src = {
             if let Some(s) = v.as_str() {
                 Ok(s)
@@ -109,9 +114,10 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
         }?;
         println!("Mounting {} to {}", src, k);
 
+        let tgt = std::path::Path::new(new_root).join(k.as_str());
         nix::mount::mount::<_, _, str, str>(
             Some(src),
-            k.as_str(),
+            &tgt,
             None,
             MsFlags::MS_BIND | MsFlags::MS_REC,
             None
