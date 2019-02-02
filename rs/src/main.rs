@@ -2,7 +2,8 @@ use nix::mount::MsFlags;
 use nix::sched::CloneFlags;
 use nix::unistd;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
+use toml::Value;
 #[macro_use]
 extern crate derive_error;
 
@@ -11,9 +12,14 @@ enum Error {
     Nix(nix::Error),
     Io(std::io::Error),
     Nul(std::ffi::NulError),
+    Toml(toml::de::Error),
+    TomlMismatch,
+    None
 }
 
-fn enter_chroot(new_root: &str, cmd: &str, hostname: &str) -> Result<(), Error> {
+fn enter_chroot(cfg: &Value) -> Result<(), Error> {
+    let bind_cfg = &cfg["bind"];
+    let new_root = bind_cfg["/"].as_str().ok_or(Error::TomlMismatch)?;
     unistd::chdir(new_root)?;
 
     let old_uid = unistd::getuid();
@@ -129,7 +135,15 @@ fn start_pid1() -> Result<unistd::Pid, Error> {
 }
 
 fn main() -> Result<(), Error> {
-    enter_chroot(&std::env::args().skip(1).next().unwrap(), "", "")?;
+    let cfg = std::env::args().nth(1).ok_or(Error::None)?;
+    let cfg = {
+        let mut tmp = String::new();
+        File::open(cfg)?.read_to_string(&mut tmp)?;
+        tmp
+    };
+
+    let cfg = cfg.parse::<Value>()?;
+    enter_chroot(&cfg)?;
 
     let child = start_pid1()?;
     nix::sys::wait::waitpid(Some(child), None)?;
