@@ -13,6 +13,7 @@ enum Error {
     Io(std::io::Error),
     Nul(std::ffi::NulError),
     Toml(toml::de::Error),
+    PathStrip(std::path::StripPrefixError),
     TomlMismatch,
     None,
 }
@@ -114,7 +115,8 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
         }?;
         println!("Mounting {} to {}", src, k);
 
-        let tgt = std::path::Path::new(new_root).join(k.as_str());
+        let p = std::path::Path::new(k.as_str()).strip_prefix("/")?;
+        let tgt = std::path::Path::new(new_root).join(&p);
         nix::mount::mount::<_, _, str, str>(
             Some(src),
             &tgt,
