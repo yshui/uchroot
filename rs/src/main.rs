@@ -14,7 +14,7 @@ enum Error {
     Nul(std::ffi::NulError),
     Toml(toml::de::Error),
     TomlMismatch,
-    None
+    None,
 }
 
 fn enter_chroot(cfg: &Value) -> Result<(), Error> {
@@ -59,7 +59,13 @@ fn enter_chroot(cfg: &Value) -> Result<(), Error> {
     )?;
 
     // Create mount points under new_root
-    nix::mount::mount::<_, _, str, str>(Some(new_root), new_root, None, MsFlags::MS_BIND, None)?;
+    nix::mount::mount::<_, _, str, str>(
+        Some(new_root),
+        new_root,
+        None,
+        MsFlags::MS_BIND | MsFlags::MS_REC,
+        None,
+    )?;
 
     // chdir into the mount point, so after the move mount, we are actually under the new root
     unistd::chdir(new_root)?;
